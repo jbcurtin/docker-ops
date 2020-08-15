@@ -131,17 +131,19 @@ class BuildInfo:
 
     @property
     def docker(self: PWN) -> Docker:
-        docker_filepath = os.path.dirname(self.build_info_path)
-        docker_filepath = os.path.join(docker_filepath, 'Dockerfile')
         if hasattr(self, '_docker'):
             return self._docker
 
+        docker_filepath = os.path.dirname(self.build_info_path)
+        docker_filepath = os.path.join(docker_filepath, 'Dockerfile')
         self._docker = Docker(docker_filepath)
         return self._docker
 
-        
     def __repr__(self: PWN) -> str:
         return f'{self.name} {self.version.get_version()}'
+
+    def new_source_build_required(self: PWN) -> bool:
+        return self._source.build_required()
 
     def new_build_required(self: PWN) -> bool:
         return self._build_info.get('hash', None) != self.hash.get_hash()
@@ -160,12 +162,13 @@ def find_new_builds(image_dir: str) -> typing.List[BuildInfo]:
             dockerfile_path = os.path.join(root, dirname, 'Dockerfile')
             if not os.path.exists(dockerfile_path):
                 continue
-    
-            build_data_path = os.path.join(root, dirname, 'build.json')
-            if not os.path.exists(build_data_path):
-                new_builds.append(BuildInfo(os.path.join(root, dirname)))
-                continue
-    
+ 
+            
+            # build_data_path = os.path.join(root, dirname, 'build.json')
+            # if not os.path.exists(build_data_path):
+            #     new_builds.append(BuildInfo(os.path.join(root, dirname)))
+            #     continue
+
             import pdb; pdb.set_trace()
             import sys; sys.exit(1)
 
@@ -173,7 +176,7 @@ def find_new_builds(image_dir: str) -> typing.List[BuildInfo]:
 
 def scan_and_build(directory_path: str) -> None:
     for build_info in find_new_builds(directory_path):
-        if build_info.new_build_required():
+        if build_info.new_build_required() or build_info.new_source_build_required():
             build_info.version.inc_minor_minor()
             build_info.docker.build(directory_path, REGISTRY_DOMAIN, build_info.name, build_info.version.get_version())
             build_info.docker.push(REGISTRY_DOMAIN, build_info.name, build_info.version.get_version())

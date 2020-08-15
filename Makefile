@@ -2,8 +2,10 @@
 
 release:
 	pip install -U twine
+	pip install -U setuptools
+	pip install -U pip
 	make clean
-	python setup.py sdist bdist_wheel --universal
+	python setup.py sdist
 	python -m twine upload --verbose dist/*
 
 clean :
