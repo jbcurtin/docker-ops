@@ -5,7 +5,10 @@ import json
 import hashlib
 import os
 import tempfile
+import types
 import typing
+
+from docker_ops import utils as docker_ops_utils
 
 REGISTRY_DOMAIN = os.environ['IMAGE_REGISTRY_DOMAIN']
 PROJECT_DIR = os.getcwd()
@@ -29,15 +32,21 @@ class Version:
         return f'Version[{self.get_version()}]'
 
 class Hash:
-    def __init__(self: PWN, dockerfile_path: str) -> str:
+    def __init__(self: PWN, dockerfile_path: str, source_paths: typing.List[str] = []) -> str:
         if not os.path.exists(dockerfile_path):
             raise IOError(f'Unable to load Dockerfile[{dockerfile_path}]')
 
+        self._hashes = []
+        for source_path in source_paths:
+            self._hashes.append(docker_ops_utils.hash_directory(source_path))
+
         with open(dockerfile_path, 'rb') as stream:
-            self._file_data = stream.read().decode(ENCODING)
+            self._hashes.append(hashlib.sha256(stream.read()).hexdigest())
 
     def get_hash(self: PWN) -> str:
-        return hashlib.sha256(self._file_data.encode(ENCODING)).hexdigest()
+        hashes = ''.join(self._hashes)
+        hashes = hashes.encode('utf-8')
+        return hashlib.sha256(hashes).hexdigest()
 
     def __repr__(self: PWN) -> str:
         return f'Build Hash: {self.get_hash()}'
@@ -95,12 +104,15 @@ class Docker:
 
 class BuildInfo:
     KEYS = ['version', 'name', 'hash']
-    def __init__(self: PWN, build_info_dir: str) -> None:
-        build_info_filename = 'build-info.json'
-        self.build_info_path = os.path.join(build_info_dir, build_info_filename)
-        if not os.path.exists(self.build_info_path):
+    def __init__(self: PWN, project_dir: str, docker_filepath: str, source_paths: typing.List[str] = []) -> None:
+        self._project_dir = project_dir
+        self._docker_filepath = docker_filepath
+        self._source_paths = source_paths
+        self._build_info_filepath = os.path.join(project_dir, 'build-info.json')
+
+        if not os.path.exists(self._build_info_filepath):
             self._build_info = {
-                'name': os.path.dirname(self.build_info_path).rsplit('/', 1)[1]
+                'name': project_dir.rsplit('/', 1)[1]
             }
 
         else:
@@ -124,9 +136,7 @@ class BuildInfo:
         if hasattr(self, '_hash'):
             return self._hash
 
-        docker_filepath = os.path.dirname(self.build_info_path)
-        docker_filepath = os.path.join(docker_filepath, 'Dockerfile')
-        self._hash = Hash(docker_filepath)
+        self._hash = Hash(self._docker_filepath, self._source_paths)
         return self._hash
 
     @property
@@ -142,9 +152,6 @@ class BuildInfo:
     def __repr__(self: PWN) -> str:
         return f'{self.name} {self.version.get_version()}'
 
-    def new_source_build_required(self: PWN) -> bool:
-        return self._source.build_required()
-
     def new_build_required(self: PWN) -> bool:
         return self._build_info.get('hash', None) != self.hash.get_hash()
 
@@ -155,32 +162,40 @@ class BuildInfo:
         with open(self.build_info_path, 'wb') as stream:
             stream.write(data)
 
-def find_new_builds(image_dir: str) -> typing.List[BuildInfo]:
-    new_builds = []
+def find_python_source_directories(dockerfile_dir: str) -> typing.List[str]:
+    source_paths = []
+    for root, dirnames, filenames in os.walk(dockerfile_dir):
+        for dirname in dirnames:
+            init_filepath = os.path.join(root, dirname, '__init__.py')
+            if os.path.exists(init_filepath):
+                source_path = os.path.join(root, dirname)
+                rel_source_path = source_path.replace(dockerfile_dir, '').strip('/')
+                source_paths.append(rel_source_path)
+
+    return source_paths
+
+def find_build_infos(image_dir: str) -> types.GeneratorType:
+    new_build_infos = []
     for root, dirnames, filenames in os.walk(image_dir):
         for dirname in dirnames:
-            dockerfile_path = os.path.join(root, dirname, 'Dockerfile')
+            project_dir = os.path.join(root, dirname)
+            source_paths = []
+
+            dockerfile_path = os.path.join(project_dir, 'Dockerfile')
             if not os.path.exists(dockerfile_path):
                 continue
- 
-            
-            # build_data_path = os.path.join(root, dirname, 'build.json')
-            # if not os.path.exists(build_data_path):
-            #     new_builds.append(BuildInfo(os.path.join(root, dirname)))
-            #     continue
 
-            import pdb; pdb.set_trace()
-            import sys; sys.exit(1)
-
-    return new_builds
+            source_paths = find_python_source_directories(project_dir)
+            yield BuildInfo(project_dir, dockerfile_path, source_paths)
 
 def scan_and_build(directory_path: str) -> None:
     for build_info in find_new_builds(directory_path):
-        if build_info.new_build_required() or build_info.new_source_build_required():
-            build_info.version.inc_minor_minor()
-            build_info.docker.build(directory_path, REGISTRY_DOMAIN, build_info.name, build_info.version.get_version())
-            build_info.docker.push(REGISTRY_DOMAIN, build_info.name, build_info.version.get_version())
-            build_info.docker.sync_latest(REGISTRY_DOMAIN, build_info.name, build_info.version.get_version())
+        print(build_info)
+        # if build_info.new_build_required():
+        #     build_info.version.inc_minor_minor()
+        #     build_info.docker.build(directory_path, REGISTRY_DOMAIN, build_info.name, build_info.version.get_version())
+        #     build_info.docker.push(REGISTRY_DOMAIN, build_info.name, build_info.version.get_version())
+        #     build_info.docker.sync_latest(REGISTRY_DOMAIN, build_info.name, build_info.version.get_version())
     
-        build_info.store()
+        # build_info.store()
 
