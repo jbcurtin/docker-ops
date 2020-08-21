@@ -241,7 +241,8 @@ def find_build_infos(image_dir: str, source_paths: typing.List[str]) -> types.Ge
 
             yield BuildInfo(build_dir, dockerfile_path, s_paths)
 
-def scan_and_build(directory_path: str, source_paths: typing.List[str]) -> None:
+def scan_and_build(directory_path: str, source_paths: typing.List[str], verbose: bool=True) -> None:
+    infos = []
     for build_info in find_build_infos(directory_path, source_paths):
         if build_info.new_build_required():
             build_info.version.inc_minor_minor()
@@ -249,6 +250,19 @@ def scan_and_build(directory_path: str, source_paths: typing.List[str]) -> None:
             build_info.docker.set_latest(build_info.version.get_version())
             build_info.docker.push(build_info.version.get_version(), verbose=True)
             build_info.docker.push('latest', verbose=True)
+            infos.append([True, build_info])
+
+        else:
+            infos.append([False, build_info])
+
 
         build_info.store()
+
+    if verbose:
+        for new_build, info in infos:
+            if new_build:
+                print(f'New Build[{info}]')
+
+            else:
+                print(f'Not Built[{info}]')
 
