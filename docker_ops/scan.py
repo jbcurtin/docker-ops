@@ -221,7 +221,7 @@ class BuildInfo:
         with open(self._build_info_filepath, 'wb') as stream:
             stream.write(data)
 
-def find_build_infos(image_dir: str, source_paths: typing.List[str] = []) -> types.GeneratorType:
+def find_build_infos(image_dir: str, source_paths: typing.List[str]) -> types.GeneratorType:
     new_build_infos = []
     for root, dirnames, filenames in os.walk(image_dir):
         for dirname in dirnames:
@@ -239,14 +239,9 @@ def find_build_infos(image_dir: str, source_paths: typing.List[str] = []) -> typ
                     else:
                         s_paths.append(os.path.dirname(full_path))
 
-            # build_project_dir = project_dir.replace(image_dir, '').strip('/')
-            # build_dockerfile_path = dockerfile_path.replace(image_dir, '').strip('/')
-            # if s_paths:
-            #     import pdb; pdb.set_trace()
-            #     pass
             yield BuildInfo(build_dir, dockerfile_path, s_paths)
 
-def scan_and_build(directory_path: str, source_paths: typing.List[str] = []) -> None:
+def scan_and_build(directory_path: str, source_paths: typing.List[str]) -> None:
     for build_info in find_build_infos(directory_path, source_paths):
         if build_info.new_build_required():
             build_info.version.inc_minor_minor()

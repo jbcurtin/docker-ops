@@ -57,7 +57,7 @@ def test__Version():
 
 def test__find_build_infos(images_directory_with_dockerfiles):
     from docker_ops.scan import find_build_infos, BuildInfo
-    for build_info in find_build_infos(images_directory_with_dockerfiles):
+    for build_info in find_build_infos(images_directory_with_dockerfiles, []):
         assert build_info.version.get_version() == '0.0.0'
         assert len(build_info._source_paths) is 0
 

@@ -11,5 +11,6 @@ __pycache__
 env-twine
 env-docs
 env-test
+env-release
 env
 .tox

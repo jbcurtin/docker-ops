@@ -35,7 +35,7 @@ def main() -> None:
     options = obtain_options()
     if options.build:
         from docker_ops import scan
-        scan.scan_and_build(options.directory)
+        scan.scan_and_build(options.directory, options.source_paths)
 
     elif options.schedule:
         options.source_paths = options.source_paths.split(',')
