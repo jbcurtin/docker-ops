@@ -15,21 +15,21 @@ if CURRENT_PYTHON < REQUIRED_PYTHON:
 ==========================
 Unsupported Python version
 ==========================
-This version of Bert requires Python {}.{}, but you're trying to
+This version of docker-ops requires Python {}.{}, but you're trying to
 install it on Python {}.{}.
 This may be because you are using a version of pip that doesn't
 understand the python_requires classifier. Make sure you
 have pip >= 9.0 and setuptools >= 24.2, then try again:
     $ python -m pip install --upgrade pip setuptools
     $ python -m pip install bert
-This will install the latest version of Bert which works on your
+This will install the latest version of docker-ops which works on your
 version of Python
 """.format(*(REQUIRED_PYTHON + CURRENT_PYTHON)))
     sys.exit(1)
 
 
 EXCLUDE_FROM_PACKAGES = []
-version = '0.0.2'
+version = '0.0.3'
 
 INSTALL_REQUIRES = ['docker==4.2.2',]
 description = 'Docker Operations'

@@ -1,17 +1,18 @@
 import pytest
 
+from docker_ops_tests.pytest_constants import TESTING_DIR
 from docker_ops_tests.pytest_utils import dockerfile_directory, dockerfile_directory_with_source, \
-    images_directory_with_dockerfiles
+    images_directory_with_dockerfiles, deeply_nested_source_files
 
-@pytest.fixture(scope='function', autouse=True)
-def setup_environment(request):
-    import os
-    os.environ['IMAGE_REGISTRY_DOMAIN'] = 'jbcurtin.io'
-
-    def destroy_environment():
-        del os.environ['IMAGE_REGISTRY_DOMAIN']
-
-    request.addfinalizer(destroy_environment)
+# @pytest.fixture(scope='function', autouse=True)
+# def setup_environment(request):
+#     import os
+#     os.environ['IMAGE_REGISTRY_DOMAIN'] = 'jbcurtin.io'
+# 
+#     def destroy_environment():
+#         del os.environ['IMAGE_REGISTRY_DOMAIN']
+# 
+#     request.addfinalizer(destroy_environment)
 
 def test_Hash(dockerfile_directory):
     import os
@@ -27,8 +28,9 @@ def test_Hash__with_source(dockerfile_directory_with_source):
 
     from docker_ops.scan import Hash
     dockerfile_path = os.path.join(dockerfile_directory_with_source, 'Dockerfile')
-    source_paths = [os.path.join(dockerfile_directory_with_source, 'python_codes')]
-    expected_hash = '28d2cc4786430ce845a1d1d8297b64ed352342fd82a67b1a46c12ba2d227b74f'
+    source_paths = [os.path.join(dockerfile_directory_with_source, 'python_codes/factory.py')]
+    expected_hash = '4c424b3272800bc07e07baf5792602ff77bc45bd1d729a024e513526eeedcb02'
+    assert Hash(dockerfile_path, []).get_hash() != expected_hash
     assert Hash(dockerfile_path, source_paths).get_hash() == expected_hash
 
 def test__Version():
@@ -63,20 +65,111 @@ def test__Version():
     assert version_inc._minor_minor == 2
     assert version_inc.get_version() == '3.2.2'
 
-def test__find_python_source_directories(images_directory_with_dockerfiles):
-    from docker_ops.scan import find_python_source_directories
-
-    source_paths = find_python_source_directories(images_directory_with_dockerfiles)
-    assert 'image-three/python_codes' in source_paths
-    assert 'image-four/python_codes' in source_paths
-
 def test__find_build_infos(images_directory_with_dockerfiles):
-    import os
-
     from docker_ops.scan import find_build_infos, BuildInfo
     for build_info in find_build_infos(images_directory_with_dockerfiles):
         assert build_info.version.get_version() == '0.0.0'
+        assert len(build_info._source_paths) is 0
 
-def test_scan():
-    pass
+def test__find_build_infos__source_paths(images_directory_with_dockerfiles):
+    from docker_ops.scan import find_build_infos, BuildInfo
+
+    for build_info in find_build_infos(images_directory_with_dockerfiles, ['python_codes/factory.py']):
+        assert build_info.version.get_version() == '0.0.0'
+        if build_info.name in ['image-three', 'image-four']:
+            assert build_info._source_paths[0].endswith('python_codes')
+
+        else:
+            assert len(build_info._source_paths) is 0
+
+def test__Docker(dockerfile_directory_with_source):
+    import docker
+    import os
+
+    from docker_ops.scan import Docker
+    from docker_ops.constants import IMAGE_REGISTRY_DOMAIN
+
+    dockerfile_path = os.path.join(dockerfile_directory_with_source, 'Dockerfile')
+    docker_instance = Docker(dockerfile_directory_with_source, dockerfile_path)
+    assert docker_instance._dockerfile_path == 'Dockerfile'
+    assert docker_instance._build_dir == dockerfile_directory_with_source
+    assert isinstance(docker_instance._client, docker.APIClient)
+    build_name = os.path.basename(dockerfile_directory_with_source)
+    build_name_full = f'{IMAGE_REGISTRY_DOMAIN}/{build_name}'
+    assert docker_instance._build_name == build_name
+    assert docker_instance._build_name_full == build_name_full
+
+import json
+import types
+class DockerAPIClientMock:
+    def __init__(self, base_url: str) -> None:
+        self._base_url = base_url
+
+    def _mock_build(self) -> str:
+        for idx in range(1, 4):
+            stream = f'Build: {idx}'
+            yield json.dumps({'stream': stream}).encode('utf-8')
+
+    def build(self, path: str, dockerfile: str, tag: str) -> types.GeneratorType:
+        return self._mock_build()
+
+    def _mock_push(self) -> types.GeneratorType:
+        for idx in range(1, 4):
+            stream = f'Pushing: {idx}'
+            yield stream
+
+    def push(self, path: str, version: str, stream: bool, decode: bool) -> types.GeneratorType:
+        return self._mock_push()
+
+    def tag(self, existing_tag: str, new_tag: str, version: str) -> None:
+        pass
+
+def test__Docker__build(dockerfile_directory_with_source, monkeypatch):
+    import docker
+    import os
+
+    from docker_ops.scan import Docker
+
+    # monkeypatch.setattr(docker, 'APIClient', DockerAPIClientMock)
+    dockerfile_path = os.path.join(dockerfile_directory_with_source, 'Dockerfile')
+    docker_instance = Docker(dockerfile_directory_with_source, dockerfile_path)
+    build_version = 'latest'
+    build_name = docker_instance.build(build_version, verbose=False)
+    assert build_name == f'{docker_instance._build_name}:{build_version}'
+    build_version = '0.0.0'
+    build_name = docker_instance.build(build_version, verbose=False)
+    assert build_name == f'{docker_instance._build_name}:{build_version}'
+
+def test__Docker__push(dockerfile_directory_with_source, monkeypatch):
+    import docker
+    import os
+
+    # os.environ['IMAGE_REGISTRY_DOMAIN'] = 'images.jbcurtin.io'
+    from docker_ops.scan import Docker
+
+    monkeypatch.setattr(docker, 'APIClient', DockerAPIClientMock)
+    dockerfile_path = os.path.join(dockerfile_directory_with_source, 'Dockerfile')
+    docker_instance = Docker(dockerfile_directory_with_source, dockerfile_path)
+    build_version = 'latest'
+    build_name = docker_instance.build(build_version, verbose=False)
+    assert ':'.join([docker_instance._build_name, build_version]) == build_name
+    push_build_name = docker_instance.push(build_version, verbose=False)
+    assert ':'.join([docker_instance._build_name_full, build_version]) == push_build_name
+
+def test__Docker__push_custom_registry(dockerfile_directory_with_source, monkeypatch):
+    import docker
+    import os
+
+    os.environ['IMAGE_REGISTRY_DOMAIN'] = 'images.jbcurtin.io'
+    from docker_ops.scan import Docker
+
+    monkeypatch.setattr(docker, 'APIClient', DockerAPIClientMock)
+    dockerfile_path = os.path.join(dockerfile_directory_with_source, 'Dockerfile')
+    docker_instance = Docker(dockerfile_directory_with_source, dockerfile_path)
+    build_version = 'latest'
+    build_name = docker_instance.build(build_version, verbose=False)
+    assert ':'.join([docker_instance._build_name, build_version]) == build_name
+    push_build_name = docker_instance.push(build_version, verbose=False)
+    assert ':'.join([docker_instance._build_name_full, build_version]) == push_build_name
+    del os.environ['IMAGE_REGISTRY_DOMAIN']
 
