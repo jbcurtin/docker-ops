@@ -2,9 +2,9 @@
 
 Perform common operations on folders with a Dockerfile
 
-## Install
+## Install and run
 
 ```
-$ pip install docker-ops
-$ docker-ops.py --scan
+$ pip install -U docker-ops
+$ docker-ops.py -d images
 ```
