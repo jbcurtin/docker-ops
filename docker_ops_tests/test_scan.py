@@ -4,16 +4,6 @@ from docker_ops_tests.pytest_constants import TESTING_DIR
 from docker_ops_tests.pytest_utils import dockerfile_directory, dockerfile_directory_with_source, \
     images_directory_with_dockerfiles, deeply_nested_source_files
 
-# @pytest.fixture(scope='function', autouse=True)
-# def setup_environment(request):
-#     import os
-#     os.environ['IMAGE_REGISTRY_DOMAIN'] = 'jbcurtin.io'
-# 
-#     def destroy_environment():
-#         del os.environ['IMAGE_REGISTRY_DOMAIN']
-# 
-#     request.addfinalizer(destroy_environment)
-
 def test_Hash(dockerfile_directory):
     import os
 
@@ -144,7 +134,6 @@ def test__Docker__push(dockerfile_directory_with_source, monkeypatch):
     import docker
     import os
 
-    # os.environ['IMAGE_REGISTRY_DOMAIN'] = 'images.jbcurtin.io'
     from docker_ops.scan import Docker
 
     monkeypatch.setattr(docker, 'APIClient', DockerAPIClientMock)
@@ -160,7 +149,7 @@ def test__Docker__push_custom_registry(dockerfile_directory_with_source, monkeyp
     import docker
     import os
 
-    os.environ['IMAGE_REGISTRY_DOMAIN'] = 'images.jbcurtin.io'
+    os.environ['IMAGE_REGISTRY_DOMAIN'] = 'registry.jbcurtin.io'
     from docker_ops.scan import Docker
 
     monkeypatch.setattr(docker, 'APIClient', DockerAPIClientMock)
