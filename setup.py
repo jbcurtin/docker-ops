@@ -29,7 +29,7 @@ version of Python
 
 
 EXCLUDE_FROM_PACKAGES = []
-version = '0.0.4'
+version = '0.0.5'
 
 INSTALL_REQUIRES = ['docker==4.2.2',]
 description = 'Docker Operations'
