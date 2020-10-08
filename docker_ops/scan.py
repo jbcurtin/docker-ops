@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import docker
+import glob
 import json
 import hashlib
 import os
@@ -49,23 +50,24 @@ class Hash:
         return f'Build Hash: {self.get_hash()}'
 
 class Docker:
-    def __init__(self: PWN, build_dir: str, dockerfile_path: str) -> None:
+    def __init__(self: PWN, build_dir: str, dockerfile_path: str, build_name: str, build_variant: str) -> None:
         self._build_dir = build_dir
         self._dockerfile_path = dockerfile_path
         if not os.path.exists(dockerfile_path):
             raise IOError(f'Missing Dockerfile[{dockerfile_path}]')
-
-        if not dockerfile_path.startswith(build_dir):
-            raise IOError(f'Dockerfile not inside Bulid Dir[{build_dir}]')
 
         rel_dockerfile_path = dockerfile_path.replace(build_dir, '').strip('/')
         if not os.path.exists(os.path.join(build_dir, rel_dockerfile_path)):
             raise IOError(f'Dockefile not found: {rel_dockerfile_path}')
 
         self._dockerfile_path = rel_dockerfile_path
-
         self._client = docker.APIClient(base_url='unix://var/run/docker.sock')
-        self._build_name = os.path.basename(build_dir)
+        if build_variant:
+            self._build_name = f'{build_variant}.{build_name}'.lower().replace('.', '-')
+
+        else:
+            self._build_name = build_name.lower().replace('.', '-')
+
         self._build_name_full = f'{docker_ops_constants.IMAGE_REGISTRY_DOMAIN}/{self._build_name}'
 
     def _stream_output_dev_null(self: PWN, generator: typing.Any) -> None:
@@ -169,27 +171,51 @@ class BuildInfo:
         self._build_name = os.path.basename(build_dir)
         self._dockerfile_path = dockerfile_path
         self._source_paths = source_paths
+        self._build_variant = os.path.basename(dockerfile_path).rsplit('.')[0]
+        if self._build_variant == 'Dockerfile':
+            self._build_variant = None
 
         self._build_info_filepath = os.path.join(build_dir, 'build-info.json')
         if not os.path.exists(self._build_info_filepath):
             self._build_info = {
                 'name': self._build_name,
             }
+            if self._build_variant:
+                self._build_info['builds'] = {}
 
         else:
             with open(self._build_info_filepath, 'rb') as stream:
-                self._build_info = json.loads(stream.read().decode(docker_ops_constants.ENCODING))
+                build_info = json.loads(stream.read().decode(docker_ops_constants.ENCODING))
+                if not 'builds' in build_info.keys() and self._build_variant:
+                    build_info['builds'] = {
+                            self._build_variant: {
+                                'hash': build_info['hash'],
+                                'version': build_info['version']
+                            }
+                        }
+
+                self._build_info = build_info
 
     @property
     def name(self: PWN) -> str:
         return self._build_info['name']
 
     @property
+    def variant(self: PWN) -> str:
+        return self._build_variant
+
+    @property
     def version(self: PWN) -> Version:
         if hasattr(self, '_version'):
             return self._version
 
-        self._version = Version(self._build_info.get('version', None))
+        if self._build_info.get('builds', None):
+            self._version = self._build_info['builds'].get(self._build_variant, {}).get('version', None)
+
+        else:
+            self._version = self._build_info.get('version', None)
+
+        self._version = Version(self._version)
         return self._version
 
     @property
@@ -205,18 +231,34 @@ class BuildInfo:
         if hasattr(self, '_docker'):
             return self._docker
 
-        self._docker = Docker(self._build_dir, self._dockerfile_path)
+        self._docker = Docker(self._build_dir, self._dockerfile_path, self.name, self.variant)
         return self._docker
 
     def __repr__(self: PWN) -> str:
-        return f'{self.name} {self.version.get_version()}'
+        if self.variant:
+            name = f'{self.variant}.{self.name}'.lower().replace('.', '-')
+
+        else:
+            name = f'{self.name}'.lower().replace('.', '-')
+
+        return f'{name} {self.version.get_version()}'
 
     def new_build_required(self: PWN) -> bool:
+        if 'builds' in self._build_info.keys():
+            return self._build_info['builds'].get(self._build_variant, {}).get('hash', None) != self.hash.get_hash()
+
         return self._build_info.get('hash', None) != self.hash.get_hash()
 
     def store(self: PWN) -> None:
-        self._build_info['hash'] = self.hash.get_hash()
-        self._build_info['version'] = self.version.get_version()
+        if self._build_variant is None:
+            self._build_info['hash'] = self.hash.get_hash()
+            self._build_info['version'] = self.version.get_version()
+        else:
+            self._build_info['builds'][self._build_variant] = {
+                'hash': self.hash.get_hash(),
+                'version': self.version.get_version()
+            }
+
         data = json.dumps(self._build_info, indent=2).encode(docker_ops_constants.ENCODING)
         with open(self._build_info_filepath, 'wb') as stream:
             stream.write(data)
@@ -225,21 +267,40 @@ def find_build_infos(image_dir: str, source_paths: typing.List[str]) -> types.Ge
     new_build_infos = []
     for root, dirnames, filenames in os.walk(image_dir):
         for dirname in dirnames:
-            build_dir = os.path.join(root, dirname)
-            dockerfile_path = os.path.join(build_dir, 'Dockerfile')
-            if not os.path.exists(dockerfile_path):
-                continue
+            if dirname == 'Dockerfiles':
+                dirpath = os.path.join(root, dirname)
+                build_dir = root
+                for dockerfile_path in glob.glob(f'{dirpath}/*.Dockerfile'):
+                    filename = os.path.basename(dockerfile_path)
+                    image_name = filename.rsplit('.', 1)[0]
 
-            s_paths = []
-            for source_path in source_paths:
-                full_path = os.path.join(build_dir, source_path)
-                if os.path.exists(full_path):
-                    if os.path.isdir(full_path):
-                        s_paths.append(full_path)
-                    else:
-                        s_paths.append(os.path.dirname(full_path))
+                    s_paths = []
+                    for source_path in source_paths:
+                        full_path = os.path.join(build_dir, source_path)
+                        if os.path.exists(full_path):
+                            if os.path.isdir(full_path):
+                                s_paths.append(full_path)
+                            else:
+                                s_paths.append(os.path.dirname(full_path))
 
-            yield BuildInfo(build_dir, dockerfile_path, s_paths)
+                    yield BuildInfo(build_dir, dockerfile_path, s_paths)
+
+            else:
+                build_dir = os.path.join(root, dirname)
+                dockerfile_path = os.path.join(build_dir, 'Dockerfile')
+                if not os.path.exists(dockerfile_path):
+                    continue
+
+                s_paths = []
+                for source_path in source_paths:
+                    full_path = os.path.join(build_dir, source_path)
+                    if os.path.exists(full_path):
+                        if os.path.isdir(full_path):
+                            s_paths.append(full_path)
+                        else:
+                            s_paths.append(os.path.dirname(full_path))
+
+                yield BuildInfo(build_dir, dockerfile_path, s_paths)
 
 def scan_and_build(directory_path: str, source_paths: typing.List[str], verbose: bool=True) -> None:
     infos = []
@@ -254,7 +315,6 @@ def scan_and_build(directory_path: str, source_paths: typing.List[str], verbose:
 
         else:
             infos.append([False, build_info])
-
 
         build_info.store()
 
