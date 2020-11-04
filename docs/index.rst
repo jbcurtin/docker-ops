@@ -20,6 +20,7 @@ The folder structure of the Dockerfile inside `images/redis` looks like
 With the example created, build and deploy the image to DockerHub with the script
 
 .. code-block:: bash
+
     #!/usr/bin/env bash  
     
     set -e  
