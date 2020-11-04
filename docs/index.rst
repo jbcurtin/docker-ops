@@ -31,6 +31,7 @@ With the example created, build and deploy the image to DockerHub with the scrip
         pip install -U pip
         pip install -U docker-ops
         docker login docker-ops.py -s -d $PWD/images  
+    fi
 
 Go ahead and build the image.
 
