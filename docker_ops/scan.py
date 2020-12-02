@@ -11,6 +11,8 @@ import typing
 
 from docker_ops import utils as docker_ops_utils, constants as docker_ops_constants
 
+from json.decoder import JSONDecodeError
+
 PWN = typing.TypeVar('PWN')
 
 class Version:
@@ -78,13 +80,19 @@ class Docker:
                 break
 
     def _stream_output(self: PWN, generator: typing.Any) -> None:
+        _buffer = []
         while True:
             try:
-                output = generator.__next__()
-                output = json.loads(output.decode(docker_ops_constants.ENCODING))
+                _buffer.extend(generator.__next__().strip(b'\n\t\r').split(b'\r\n'))
+            except StopIteration:
+                break
+
+            try:
+                output = _buffer.pop().decode(docker_ops_constants.ENCODING)
+                output = json.loads(output)
                 if 'stream' in output.keys():
                     print(output['stream'].strip('\n'))
-            except StopIteration:
+            except IndexError:
                 break
 
     def set_latest(self: PWN, version: str) -> None:
