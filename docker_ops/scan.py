@@ -314,6 +314,7 @@ def scan_and_build(directory_path: str, source_paths: typing.List[str], verbose:
     infos = []
     for build_info in find_build_infos(directory_path, source_paths):
         if build_info.new_build_required():
+            print(f'Building: {build_info}')
             build_info.version.inc_minor_minor()
             build_info.docker.build(build_info.version.get_version(), verbose=True)
             build_info.docker.set_latest(build_info.version.get_version())
